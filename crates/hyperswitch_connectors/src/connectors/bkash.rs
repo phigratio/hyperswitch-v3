@@ -127,11 +127,11 @@ impl ConnectorCommon for Bkash {
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
         Ok(vec![
             (
-                headers::USERNAME.to_string(), // Assuming Hyperswitch has a headers::USERNAME
+                headers::USERNAME.to_string(),
                 auth.username.expose().into_masked(),
             ),
             (
-                headers::PASSWORD.to_string(), // Assuming Hyperswitch has a headers::PASSWORD
+                headers::PASSWORD.to_string(),
                 auth.password.expose().into_masked(),
             ),
         ])
@@ -195,7 +195,6 @@ impl ConnectorValidation for Bkash {
 impl ConnectorIntegration<Session, PaymentsSessionData, PaymentsResponseData> for Bkash {
     //TODO: implement sessions flow
 }
-
 impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> for Bkash {
     fn get_headers(
         &self,
@@ -203,9 +202,10 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
         // Start by getting the common headers (which include USERNAME and PASSWORD)
-        let mut headers = self.build_headers(req, connectors)?;
-        
+        let mut headers = self.get_auth_header(&req.connector_auth_type)?; // Use get_auth_header to get username/password
+
         headers.push((headers::ACCEPT.to_string(), "application/json".to_string().into()));
+        headers.push((headers::CONTENT_TYPE.to_string(), self.common_get_content_type().to_string().into()));
 
         Ok(headers)
     }
@@ -288,33 +288,43 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
 }
 
 impl ConnectorIntegration<SetupMandate, SetupMandateRequestData, PaymentsResponseData> for Bkash {}
-
 impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData> for Bkash {
     fn get_headers(
         &self,
         req: &PaymentsAuthorizeRouterData,
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        let mut headers = self.build_headers(req, connectors)?;
-        
-        // Add Authorization header with access token
+        let content_type = ConnectorCommon::common_get_content_type(self);
+        let mut headers = vec![
+            (
+                headers::CONTENT_TYPE.to_string(),
+                content_type.to_string().into(),
+            ),
+            (
+                headers::ACCEPT.to_string(), // Add Accept header as per documentation
+                "application/json".to_string().into(),
+            ),
+        ];
+
+        // Add Authorization header with access token (id_token directly)
         if let Some(access_token) = &req.access_token {
             headers.push((
                 headers::AUTHORIZATION.to_string(),
-                format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
+                access_token.token.clone().expose().into_masked(), // DIRECTLY use the token, no "Bearer "
             ));
         }
-        
+
         // Add X-App-Key header
         let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
         headers.push((
-            "X-App-Key".to_string(),
+            headers::X_APP_KEY.to_string(),
             auth.app_key.expose().into_masked(),
         ));
-        
+
         Ok(headers)
     }
+
 
     fn get_content_type(&self) -> &'static str {
         self.common_get_content_type()
