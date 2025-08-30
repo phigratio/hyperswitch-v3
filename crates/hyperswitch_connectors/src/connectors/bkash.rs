@@ -199,13 +199,15 @@ impl ConnectorIntegration<Session, PaymentsSessionData, PaymentsResponseData> fo
 impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> for Bkash {
     fn get_headers(
         &self,
-        _req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
-        _connectors: &Connectors,
+        req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>, // Keep the original req type
+        connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        Ok(vec![
-            (headers::CONTENT_TYPE.to_string(), "application/json".to_string().into()),
-            (headers::ACCEPT.to_string(), "application/json".to_string().into()),
-        ])
+        // Start by getting the common headers (which include USERNAME and PASSWORD)
+        let mut headers = self.build_headers(req, connectors)?;
+        
+        headers.push((headers::ACCEPT.to_string(), "application/json".to_string().into()));
+
+        Ok(headers)
     }
 
     fn get_content_type(&self) -> &'static str {
@@ -227,12 +229,12 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
     ) -> CustomResult<RequestContent, errors::ConnectorError> {
         let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
-        
+
         let grant_request = bkash::BkashGrantTokenRequest {
             app_key: auth.app_key,
             app_secret: auth.app_secret,
         };
-        
+
         Ok(RequestContent::Json(Box::new(grant_request)))
     }
 
@@ -262,7 +264,7 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
             .response
             .parse_struct("Bkash Grant Token Response")
             .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
-        
+
         event_builder.map(|i| i.set_response_body(&response));
         router_env::logger::info!(connector_response=?response);
 
