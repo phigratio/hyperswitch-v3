@@ -110,6 +110,7 @@ pub fn validate_payment_method_type_against_payment_method(
                 | api_enums::PaymentMethodType::ApplePay
                 | api_enums::PaymentMethodType::GooglePay
                 | api_enums::PaymentMethodType::Paypal
+                | api_enums::PaymentMethodType::Bkash
                 | api_enums::PaymentMethodType::AliPay
                 | api_enums::PaymentMethodType::AliPayHk
                 | api_enums::PaymentMethodType::Dana

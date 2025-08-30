@@ -111,6 +111,7 @@ impl TryFrom<&TokenizationRouterData> for TokenRequest {
                 | WalletData::AmazonPay(_)
                 | WalletData::AmazonPayRedirect(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::BluecodeRedirect {}
                 | WalletData::MomoRedirect(_)
@@ -374,6 +375,7 @@ impl TryFrom<&CheckoutRouterData<&PaymentsAuthorizeRouterData>> for PaymentsRequ
                 | WalletData::AmazonPay(_)
                 | WalletData::AmazonPayRedirect(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::BluecodeRedirect {}
                 | WalletData::MomoRedirect(_)

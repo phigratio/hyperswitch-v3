@@ -288,6 +288,7 @@ impl TryFrom<&SetupMandateRouterData> for CybersourceZeroMandateRequest {
                 | WalletData::AliPayHkRedirect(_)
                 | WalletData::AmazonPayRedirect(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::BluecodeRedirect {}
                 | WalletData::MomoRedirect(_)
@@ -2470,6 +2471,7 @@ impl TryFrom<&CybersourceRouterData<&PaymentsAuthorizeRouterData>> for Cybersour
                         | WalletData::AliPayHkRedirect(_)
                         | WalletData::AmazonPayRedirect(_)
                         | WalletData::Paysera(_)
+                        | WalletData::Bkash(_)
                         | WalletData::Skrill(_)
                         | WalletData::BluecodeRedirect {}
                         | WalletData::MomoRedirect(_)

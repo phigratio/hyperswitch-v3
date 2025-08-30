@@ -623,6 +623,7 @@ impl TryFrom<(&PaymentMethodData, Option<&PaymentsAuthorizeRouterData>)> for Pay
                 | WalletData::AliPayHkRedirect(_)
                 | WalletData::AmazonPayRedirect(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::BluecodeRedirect {}
                 | WalletData::MomoRedirect(_)

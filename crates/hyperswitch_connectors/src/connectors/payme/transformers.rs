@@ -407,6 +407,7 @@ impl TryFrom<&PaymentMethodData> for SalePaymentMethod {
                 | WalletData::AmazonPay(_)
                 | WalletData::AmazonPayRedirect(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::MomoRedirect(_)
                 | WalletData::KakaoPayRedirect(_)

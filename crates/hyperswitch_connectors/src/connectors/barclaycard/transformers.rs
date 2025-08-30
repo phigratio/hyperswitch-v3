@@ -1316,6 +1316,7 @@ impl TryFrom<&BarclaycardRouterData<&PaymentsAuthorizeRouterData>> for Barclayca
                 | WalletData::CashappQr(_)
                 | WalletData::SwishQr(_)
                 | WalletData::Paysera(_)
+                | WalletData::Bkash(_)
                 | WalletData::Skrill(_)
                 | WalletData::BluecodeRedirect {}
                 | WalletData::AmazonPay(_)

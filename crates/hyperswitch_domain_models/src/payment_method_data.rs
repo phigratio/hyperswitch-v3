@@ -285,6 +285,7 @@ pub enum WalletData {
     AmazonPayRedirect(Box<AmazonPayRedirect>),
     BluecodeRedirect {},
     Paysera(Box<PayseraData>),
+    Bkash(Box<BkashData>),
     Skrill(Box<SkrillData>),
     MomoRedirect(MomoRedirection),
     KakaoPayRedirect(KakaoPayRedirection),
@@ -441,6 +442,10 @@ pub struct BluecodeQrRedirect {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct PayseraData {}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct BkashData {}
+
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SkrillData {}
@@ -1156,6 +1161,7 @@ impl From<api_models::payments::WalletData> for WalletData {
             }
             api_models::payments::WalletData::Skrill(_) => Self::Skrill(Box::new(SkrillData {})),
             api_models::payments::WalletData::Paysera(_) => Self::Paysera(Box::new(PayseraData {})),
+            api_models::payments::WalletData::Bkash(_) => Self::Bkash(Box::new(BkashData {})),
             api_models::payments::WalletData::MomoRedirect(_) => {
                 Self::MomoRedirect(MomoRedirection {})
             }
@@ -2006,6 +2012,7 @@ impl GetPaymentMethodType for WalletData {
             Self::AmazonPayRedirect(_) => api_enums::PaymentMethodType::AmazonPay,
             Self::Skrill(_) => api_enums::PaymentMethodType::Skrill,
             Self::Paysera(_) => api_enums::PaymentMethodType::Paysera,
+            Self::Bkash(_) => api_enums::PaymentMethodType::Bkash,
             Self::MomoRedirect(_) => api_enums::PaymentMethodType::Momo,
             Self::KakaoPayRedirect(_) => api_enums::PaymentMethodType::KakaoPay,
             Self::GoPayRedirect(_) => api_enums::PaymentMethodType::GoPay,

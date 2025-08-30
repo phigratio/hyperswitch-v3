@@ -4,6 +4,8 @@ pub(crate) mod headers {
     pub(crate) const API_KEY: &str = "API-KEY";
     pub(crate) const APIKEY: &str = "apikey";
     pub(crate) const API_TOKEN: &str = "Api-Token";
+    pub(crate) const USERNAME: &str = "Username";
+    pub(crate) const PASSWORD: &str = "Password";
     pub(crate) const AUTHORIZATION: &str = "Authorization";
     pub(crate) const CONTENT_TYPE: &str = "Content-Type";
     pub(crate) const DATE: &str = "Date";

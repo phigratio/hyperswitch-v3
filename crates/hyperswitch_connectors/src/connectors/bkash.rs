@@ -11,7 +11,7 @@ use common_utils::{
 };
 use error_stack::{report, ResultExt};
 use hyperswitch_domain_models::{
-    payment_method_data::PaymentMethodData,
+    payment_method_data::{PaymentMethodData, WalletData as WalletDataPaymentMethod},
     router_data::{AccessToken, ConnectorAuthType, ErrorResponse, RouterData},
     router_flow_types::{
         access_token_auth::AccessTokenAuth,
@@ -31,6 +31,8 @@ use hyperswitch_domain_models::{
         RefundSyncRouterData, RefundsRouterData,
     },
 };
+use hyperswitch_domain_models::router_response_types::{PaymentMethodDetails, SupportedPaymentMethodsExt};
+use router_env;
 use hyperswitch_interfaces::{
     api::{
         self, ConnectorCommon, ConnectorCommonExt, ConnectorIntegration, ConnectorSpecifications,
@@ -42,7 +44,7 @@ use hyperswitch_interfaces::{
     types::{self, Response},
     webhooks,
 };
-use masking::{ExposeInterface, Mask};
+use masking::{ExposeInterface, Mask, PeekInterface};
 use transformers as bkash;
 
 use crate::{constants::headers, types::ResponseRouterData, utils};
@@ -79,6 +81,7 @@ impl ConnectorIntegration<PaymentMethodToken, PaymentMethodTokenizationData, Pay
     // Not Implemented (R)
 }
 
+
 impl<Flow, Request, Response> ConnectorCommonExt<Flow, Request, Response> for Bkash
 where
     Self: ConnectorIntegration<Flow, Request, Response>,
@@ -88,13 +91,13 @@ where
         req: &RouterData<Flow, Request, Response>,
         _connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        let mut header = vec![(
+        let content_type = ConnectorCommon::common_get_content_type(self);
+        let mut common_headers = self.get_auth_header(&req.connector_auth_type)?;
+        common_headers.push((
             headers::CONTENT_TYPE.to_string(),
-            self.get_content_type().to_string().into(),
-        )];
-        let mut api_key = self.get_auth_header(&req.connector_auth_type)?;
-        header.append(&mut api_key);
-        Ok(header)
+            content_type.to_string().into(),
+        ));
+        Ok(common_headers)
     }
 }
 
@@ -104,10 +107,8 @@ impl ConnectorCommon for Bkash {
     }
 
     fn get_currency_unit(&self) -> api::CurrencyUnit {
-        todo!()
-        //    TODO! Check connector documentation, on which unit they are processing the currency.
-        //    If the connector accepts amount in lower unit ( i.e cents for USD) then return api::CurrencyUnit::Minor,
-        //    if connector accepts amount in base unit (i.e dollars for USD) then return api::CurrencyUnit::Base
+        api::CurrencyUnit::Base
+        // bKash accepts amount in base unit (BDT)
     }
 
     fn common_get_content_type(&self) -> &'static str {
@@ -124,12 +125,17 @@ impl ConnectorCommon for Bkash {
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
         let auth = bkash::BkashAuthType::try_from(auth_type)
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
-        Ok(vec![(
-            headers::AUTHORIZATION.to_string(),
-            auth.api_key.expose().into_masked(),
-        )])
+        Ok(vec![
+            (
+                headers::USERNAME.to_string(), // Assuming Hyperswitch has a headers::USERNAME
+                auth.username.expose().into_masked(),
+            ),
+            (
+                headers::PASSWORD.to_string(), // Assuming Hyperswitch has a headers::PASSWORD
+                auth.password.expose().into_masked(),
+            ),
+        ])
     }
-
     fn build_error_response(
         &self,
         res: Response,
@@ -145,9 +151,11 @@ impl ConnectorCommon for Bkash {
 
         Ok(ErrorResponse {
             status_code: res.status_code,
-            code: response.code,
-            message: response.message,
-            reason: response.reason,
+            code: response.error_code.unwrap_or_else(|| "UNKNOWN_ERROR".to_string()),
+            message: response.error_message_en
+                .or(response.error_message)
+                .unwrap_or_else(|| "Unknown error occurred".to_string()),
+            reason: None,
             attempt_status: None,
             connector_transaction_id: None,
             network_advice_code: None,
@@ -188,7 +196,94 @@ impl ConnectorIntegration<Session, PaymentsSessionData, PaymentsResponseData> fo
     //TODO: implement sessions flow
 }
 
-impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> for Bkash {}
+impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> for Bkash {
+    fn get_headers(
+        &self,
+        _req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
+        _connectors: &Connectors,
+    ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
+        Ok(vec![
+            (headers::CONTENT_TYPE.to_string(), "application/json".to_string().into()),
+            (headers::ACCEPT.to_string(), "application/json".to_string().into()),
+        ])
+    }
+
+    fn get_content_type(&self) -> &'static str {
+        self.common_get_content_type()
+    }
+
+    fn get_url(
+        &self,
+        _req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
+        connectors: &Connectors,
+    ) -> CustomResult<String, errors::ConnectorError> {
+        Ok(format!("{}/tokenized/checkout/token/grant", self.base_url(connectors)))
+    }
+
+    fn get_request_body(
+        &self,
+        req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
+        _connectors: &Connectors,
+    ) -> CustomResult<RequestContent, errors::ConnectorError> {
+        let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
+            .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
+        
+        let grant_request = bkash::BkashGrantTokenRequest {
+            app_key: auth.app_key,
+            app_secret: auth.app_secret,
+        };
+        
+        Ok(RequestContent::Json(Box::new(grant_request)))
+    }
+
+    fn build_request(
+        &self,
+        req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
+        connectors: &Connectors,
+    ) -> CustomResult<Option<Request>, errors::ConnectorError> {
+        Ok(Some(
+            RequestBuilder::new()
+                .method(Method::Post)
+                .url(&types::RefreshTokenType::get_url(self, req, connectors)?)
+                .attach_default_headers()
+                .headers(types::RefreshTokenType::get_headers(self, req, connectors)?)
+                .set_body(types::RefreshTokenType::get_request_body(self, req, connectors)?)
+                .build(),
+        ))
+    }
+
+    fn handle_response(
+        &self,
+        data: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
+        event_builder: Option<&mut ConnectorEvent>,
+        res: Response,
+    ) -> CustomResult<RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>, errors::ConnectorError> {
+        let response: bkash::BkashGrantTokenResponse = res
+            .response
+            .parse_struct("Bkash Grant Token Response")
+            .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
+        
+        event_builder.map(|i| i.set_response_body(&response));
+        router_env::logger::info!(connector_response=?response);
+
+        Ok(RouterData {
+            status: common_enums::AttemptStatus::Charged,
+            response: Ok(AccessToken {
+                token: response.id_token,
+                expires: response.expires_in,
+            }),
+            ..data.clone()
+        })
+    }
+
+    fn get_error_response(
+        &self,
+        res: Response,
+        event_builder: Option<&mut ConnectorEvent>,
+    ) -> CustomResult<ErrorResponse, errors::ConnectorError> {
+        self.build_error_response(res, event_builder)
+    }
+}
 
 impl ConnectorIntegration<SetupMandate, SetupMandateRequestData, PaymentsResponseData> for Bkash {}
 
@@ -198,7 +293,25 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
         req: &PaymentsAuthorizeRouterData,
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        self.build_headers(req, connectors)
+        let mut headers = self.build_headers(req, connectors)?;
+        
+        // Add Authorization header with access token
+        if let Some(access_token) = &req.access_token {
+            headers.push((
+                headers::AUTHORIZATION.to_string(),
+                format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
+            ));
+        }
+        
+        // Add X-App-Key header
+        let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
+            .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
+        headers.push((
+            "X-App-Key".to_string(),
+            auth.app_key.expose().into_masked(),
+        ));
+        
+        Ok(headers)
     }
 
     fn get_content_type(&self) -> &'static str {
@@ -207,10 +320,56 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
 
     fn get_url(
         &self,
-        _req: &PaymentsAuthorizeRouterData,
-        _connectors: &Connectors,
-    ) -> CustomResult<String, errors::ConnectorError> {
-        Err(errors::ConnectorError::NotImplemented("get_url method".to_string()).into())
+        req: &PaymentsAuthorizeRouterData,
+        connectors: &Connectors,
+    ) -> CustomResult<String, errors::ConnectorError>  {
+        match req.request.payment_method_data.clone() {
+            PaymentMethodData::Wallet(ref wallet_data) => match wallet_data {
+                WalletDataPaymentMethod::Bkash(ref req_wallet) => Ok(format!(
+                    "{}/tokenized/checkout/create",
+                    self.base_url(connectors))),
+                WalletDataPaymentMethod::AliPayQr(_)
+                | WalletDataPaymentMethod::AliPayRedirect(_)
+                | WalletDataPaymentMethod::AliPayHkRedirect(_)
+                | WalletDataPaymentMethod::AmazonPayRedirect(_)
+                | WalletDataPaymentMethod::MomoRedirect(_)
+                | WalletDataPaymentMethod::KakaoPayRedirect(_)
+                | WalletDataPaymentMethod::GoPayRedirect(_)
+                | WalletDataPaymentMethod::GcashRedirect(_)
+                | WalletDataPaymentMethod::ApplePay(_)
+                | WalletDataPaymentMethod::AmazonPay(_)
+                | WalletDataPaymentMethod::ApplePayRedirect(_)
+                | WalletDataPaymentMethod::ApplePayThirdPartySdk(_)
+                | WalletDataPaymentMethod::DanaRedirect {}
+                | WalletDataPaymentMethod::GooglePay(_)
+                | WalletDataPaymentMethod::GooglePayRedirect(_)
+                | WalletDataPaymentMethod::GooglePayThirdPartySdk(_)
+                | WalletDataPaymentMethod::MbWayRedirect(_)
+                | WalletDataPaymentMethod::MobilePayRedirect(_)
+                | WalletDataPaymentMethod::PaypalRedirect(_)
+                | WalletDataPaymentMethod::PaypalSdk(_)
+                | WalletDataPaymentMethod::Paze(_)
+                | WalletDataPaymentMethod::SamsungPay(_)
+                | WalletDataPaymentMethod::TwintRedirect {}
+                | WalletDataPaymentMethod::VippsRedirect {}
+                | WalletDataPaymentMethod::BluecodeRedirect {}
+                | WalletDataPaymentMethod::TouchNGoRedirect(_)
+                | WalletDataPaymentMethod::WeChatPayRedirect(_)
+                | WalletDataPaymentMethod::WeChatPayQr(_)
+                | WalletDataPaymentMethod::CashappQr(_)
+                | WalletDataPaymentMethod::SwishQr(_)
+                | WalletDataPaymentMethod::RevolutPay(_)
+                | WalletDataPaymentMethod::Paysera(_)
+                | WalletDataPaymentMethod::Skrill(_)
+                | WalletDataPaymentMethod::Mifinity(_) => {
+                    Err(errors::ConnectorError::NotImplemented(
+                        utils::get_unimplemented_payment_method_error_message("amazonpay"),
+                    )
+                        .into())
+                }
+            },
+            _ => Err(errors::ConnectorError::NotImplemented("Payment method".to_string()).into()),
+        }
     }
 
     fn get_request_body(
@@ -428,7 +587,25 @@ impl ConnectorIntegration<Execute, RefundsData, RefundsResponseData> for Bkash {
         req: &RefundsRouterData<Execute>,
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        self.build_headers(req, connectors)
+        let mut headers = self.build_headers(req, connectors)?;
+        
+        // Add Authorization header with access token
+        if let Some(access_token) = &req.access_token {
+            headers.push((
+                headers::AUTHORIZATION.to_string(),
+                format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
+            ));
+        }
+        
+        // Add X-App-Key header
+        let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
+            .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
+        headers.push((
+            "X-App-Key".to_string(),
+            auth.app_key.expose().into_masked(),
+        ));
+        
+        Ok(headers)
     }
 
     fn get_content_type(&self) -> &'static str {
@@ -438,9 +615,9 @@ impl ConnectorIntegration<Execute, RefundsData, RefundsResponseData> for Bkash {
     fn get_url(
         &self,
         _req: &RefundsRouterData<Execute>,
-        _connectors: &Connectors,
+        connectors: &Connectors,
     ) -> CustomResult<String, errors::ConnectorError> {
-        Err(errors::ConnectorError::NotImplemented("get_url method".to_string()).into())
+        Ok(format!("{}/v2/tokenized-checkout/refund/payment/transaction", self.base_url(connectors)))
     }
 
     fn get_request_body(
@@ -598,13 +775,28 @@ impl webhooks::IncomingWebhook for Bkash {
 }
 
 static BKASH_SUPPORTED_PAYMENT_METHODS: LazyLock<SupportedPaymentMethods> =
-    LazyLock::new(SupportedPaymentMethods::new);
+    LazyLock::new(|| {
+        let supported_capture_methods = vec![enums::CaptureMethod::Automatic];
+
+        let mut supported_methods = SupportedPaymentMethods::new();
+        supported_methods.add(
+            enums::PaymentMethod::Wallet,
+            enums::PaymentMethodType::Bkash,
+            PaymentMethodDetails {
+                mandates: enums::FeatureStatus::NotSupported,
+                refunds: enums::FeatureStatus::Supported,
+                supported_capture_methods: supported_capture_methods.clone(),
+                specific_features: None,
+            },
+        );
+        supported_methods
+    });
 
 static BKASH_CONNECTOR_INFO: ConnectorInfo = ConnectorInfo {
     display_name: "Bkash",
     description: "Bkash connector",
     connector_type: enums::HyperswitchConnectorCategory::PaymentGateway,
-    integration_status: enums::ConnectorIntegrationStatus::Sandbox,
+    integration_status: enums::ConnectorIntegrationStatus::Beta,
 };
 
 static BKASH_SUPPORTED_WEBHOOK_FLOWS: [enums::EventClass; 0] = [];
@@ -615,7 +807,7 @@ impl ConnectorSpecifications for Bkash {
     }
 
     fn get_supported_payment_methods(&self) -> Option<&'static SupportedPaymentMethods> {
-        Some(&*BKASH_SUPPORTED_PAYMENT_METHODS)
+        Some(&BKASH_SUPPORTED_PAYMENT_METHODS)
     }
 
     fn get_supported_webhook_flows(&self) -> Option<&'static [enums::EventClass]> {

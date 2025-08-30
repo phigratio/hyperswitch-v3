@@ -369,6 +369,7 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
                 | WalletDataPaymentMethod::GoPayRedirect(_)
                 | WalletDataPaymentMethod::GcashRedirect(_)
                 | WalletDataPaymentMethod::ApplePay(_)
+                | WalletDataPaymentMethod::Bkash(_)
                 | WalletDataPaymentMethod::ApplePayRedirect(_)
                 | WalletDataPaymentMethod::ApplePayThirdPartySdk(_)
                 | WalletDataPaymentMethod::DanaRedirect {}

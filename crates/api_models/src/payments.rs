@@ -2861,6 +2861,7 @@ impl GetPaymentMethodType for WalletData {
             }
             Self::Skrill(_) => api_enums::PaymentMethodType::Skrill,
             Self::Paysera(_) => api_enums::PaymentMethodType::Paysera,
+            Self::Bkash(_) => api_enums::PaymentMethodType::Bkash,
             Self::MomoRedirect(_) => api_enums::PaymentMethodType::Momo,
             Self::KakaoPayRedirect(_) => api_enums::PaymentMethodType::KakaoPay,
             Self::GoPayRedirect(_) => api_enums::PaymentMethodType::GoPay,
@@ -3829,6 +3830,7 @@ pub enum WalletData {
     /// The wallet data for Paysera
     Paysera(PayseraData),
     /// The wallet data for Momo redirect
+    Bkash(BkashData),
     MomoRedirect(MomoRedirection),
     /// The wallet data for KakaoPay redirect
     KakaoPayRedirect(KakaoPayRedirection),
@@ -3917,6 +3919,7 @@ impl GetAddressFromPaymentMethodData for WalletData {
             | Self::AmazonPayRedirect(_)
             | Self::Skrill(_)
             | Self::Paysera(_)
+            | Self::Bkash(_)
             | Self::ApplePay(_)
             | Self::ApplePayRedirect(_)
             | Self::ApplePayThirdPartySdk(_)
@@ -4099,6 +4102,10 @@ pub struct SkrillData {}
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize, ToSchema)]
 pub struct PayseraData {}
+
+#[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize, ToSchema)]
+pub struct BkashData {}
+
 
 #[derive(Eq, PartialEq, Clone, Debug, serde::Deserialize, serde::Serialize, ToSchema)]
 pub struct GooglePayRedirectData {}

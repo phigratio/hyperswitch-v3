@@ -1181,6 +1181,7 @@ fn get_stripe_payment_method_type_from_wallet_data(
         | WalletData::AliPayQr(_)
         | WalletData::BluecodeRedirect {}
         | WalletData::Paysera(_)
+        | WalletData::Bkash(_)
         | WalletData::Skrill(_)
         | WalletData::AmazonPay(_)
         | WalletData::AliPayHkRedirect(_)
@@ -1641,6 +1642,7 @@ impl TryFrom<(&WalletData, Option<PaymentMethodToken>)> for StripePaymentMethodD
             ),
             WalletData::AliPayQr(_)
             | WalletData::Paysera(_)
+            | WalletData::Bkash(_)
             | WalletData::BluecodeRedirect {}
             | WalletData::Skrill(_)
             | WalletData::AmazonPay(_)

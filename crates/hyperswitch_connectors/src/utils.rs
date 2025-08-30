@@ -5521,6 +5521,7 @@ pub enum PaymentMethodDataType {
     AmazonPayRedirect,
     Skrill,
     Paysera,
+    Bkash,
     MomoRedirect,
     KakaoPayRedirect,
     GoPayRedirect,
@@ -5652,6 +5653,7 @@ impl From<PaymentMethodData> for PaymentMethodDataType {
                 payment_method_data::WalletData::AmazonPayRedirect(_) => Self::AmazonPayRedirect,
                 payment_method_data::WalletData::Skrill(_) => Self::Skrill,
                 payment_method_data::WalletData::Paysera(_) => Self::Paysera,
+                payment_method_data::WalletData::Bkash(_) => Self::Bkash,
                 payment_method_data::WalletData::MomoRedirect(_) => Self::MomoRedirect,
                 payment_method_data::WalletData::KakaoPayRedirect(_) => Self::KakaoPayRedirect,
                 payment_method_data::WalletData::GoPayRedirect(_) => Self::GoPayRedirect,
@@ -6316,6 +6318,7 @@ pub(crate) fn convert_setup_mandate_router_data_to_authorize_router_data(
         locale: None,
         payment_channel: None,
         enable_partial_authorization: data.request.enable_partial_authorization,
+        callback_url: None,
     }
 }
 

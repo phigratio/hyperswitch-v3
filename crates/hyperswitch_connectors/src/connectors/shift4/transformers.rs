@@ -399,6 +399,7 @@ impl TryFrom<&WalletData> for PaymentMethodType {
             | WalletData::MobilePayRedirect(_)
             | WalletData::PaypalSdk(_)
             | WalletData::Paze(_)
+            | WalletData::Bkash(_)
             | WalletData::SamsungPay(_)
             | WalletData::TwintRedirect {}
             | WalletData::VippsRedirect {}
