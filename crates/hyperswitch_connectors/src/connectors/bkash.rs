@@ -1,7 +1,7 @@
 pub mod transformers;
 
 use std::sync::LazyLock;
-
+use chrono::Utc;
 use common_enums::enums;
 use common_utils::{
     errors::CustomResult,
@@ -9,7 +9,8 @@ use common_utils::{
     request::{Method, Request, RequestBuilder, RequestContent},
     types::{AmountConvertor, StringMinorUnit, StringMinorUnitForConnector},
 };
-use error_stack::{report, ResultExt};
+use error_stack::{report, FutureExt, ResultExt};
+use serde_json::json;
 use hyperswitch_domain_models::{
     payment_method_data::{PaymentMethodData, WalletData as WalletDataPaymentMethod},
     router_data::{AccessToken, ConnectorAuthType, ErrorResponse, RouterData},
@@ -44,7 +45,7 @@ use hyperswitch_interfaces::{
     types::{self, Response},
     webhooks,
 };
-use masking::{ExposeInterface, Mask, PeekInterface};
+use masking::{ExposeInterface, Mask};
 use transformers as bkash;
 
 use crate::{constants::headers, types::ResponseRouterData, utils};
@@ -199,13 +200,16 @@ impl ConnectorIntegration<Session, PaymentsSessionData, PaymentsResponseData> fo
 impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> for Bkash {
     fn get_headers(
         &self,
-        _req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
-        _connectors: &Connectors,
+        req: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>, // Keep the original req type
+        connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
-        Ok(vec![
-            (headers::CONTENT_TYPE.to_string(), "application/json".to_string().into()),
-            (headers::ACCEPT.to_string(), "application/json".to_string().into()),
-        ])
+        // Start by getting the common headers (which include USERNAME and PASSWORD)
+        let mut headers = self.get_auth_header(&req.connector_auth_type)?; // Use get_auth_header to get username/password
+
+        headers.push((headers::ACCEPT.to_string(), "application/json".to_string().into()));
+        headers.push((headers::CONTENT_TYPE.to_string(), self.common_get_content_type().to_string().into()));
+
+        Ok(headers)
     }
 
     fn get_content_type(&self) -> &'static str {
@@ -252,6 +256,7 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
         ))
     }
 
+
     fn handle_response(
         &self,
         data: &RouterData<AccessTokenAuth, AccessTokenRequestData, AccessToken>,
@@ -262,16 +267,32 @@ impl ConnectorIntegration<AccessTokenAuth, AccessTokenRequestData, AccessToken> 
             .response
             .parse_struct("Bkash Grant Token Response")
             .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
-        
+
         event_builder.map(|i| i.set_response_body(&response));
         router_env::logger::info!(connector_response=?response);
 
+        let auth = bkash::BkashAuthType::try_from(&data.connector_auth_type)
+            .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
+
+        let bkash_access_token = bkash::BkashAccessToken {
+            id_token: response.id_token,
+            expires_in: response.expires_in,
+            created_at: Utc::now().timestamp(),
+            app_key: auth.app_key, // Store app_key for later use
+        };
+
+        let access_token_response = AccessToken {
+            token: bkash_access_token.id_token.clone(),
+            expires: bkash_access_token.expires_in,
+        };
+
+        // Corrected: Convert serde_json::Value to common_utils::pii::SecretSerdeValue
+        let connector_meta_data = Some(common_utils::pii::SecretSerdeValue::from(json!(bkash_access_token)));
+
         Ok(RouterData {
-            status: common_enums::AttemptStatus::Charged,
-            response: Ok(AccessToken {
-                token: response.id_token,
-                expires: response.expires_in,
-            }),
+            status: common_enums::AttemptStatus::Charged, // Assuming a successful token grant means 'charged' for the token itself
+            response: Ok(access_token_response),
+            connector_meta_data, // Using the corrected type
             ..data.clone()
         })
     }
@@ -294,23 +315,31 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
         let mut headers = self.build_headers(req, connectors)?;
-        
-        // Add Authorization header with access token
-        if let Some(access_token) = &req.access_token {
-            headers.push((
-                headers::AUTHORIZATION.to_string(),
-                format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
-            ));
-        }
-        
-        // Add X-App-Key header
+
+        // Retrieve access token from RouterData
+        // This 'access_token' field needs to be populated by the calling service
+        // after the AccessTokenAuth flow is completed.
+        let access_token = req
+            .access_token
+            .as_ref()
+            .ok_or(errors::ConnectorError::MissingRequiredField {
+                field_name: "access_token",
+            })?;
+
+        // Retrieve app_key from connector_auth_type
         let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
+
+        headers.push((
+            headers::AUTHORIZATION.to_string(),
+            format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
+        ));
+
         headers.push((
             "X-App-Key".to_string(),
             auth.app_key.expose().into_masked(),
         ));
-        
+
         Ok(headers)
     }
 
@@ -325,50 +354,17 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
     ) -> CustomResult<String, errors::ConnectorError>  {
         match req.request.payment_method_data.clone() {
             PaymentMethodData::Wallet(ref wallet_data) => match wallet_data {
-                WalletDataPaymentMethod::Bkash(ref req_wallet) => Ok(format!(
+                WalletDataPaymentMethod::Bkash(_) => Ok(format!(
                     "{}/tokenized/checkout/create",
                     self.base_url(connectors))),
-                WalletDataPaymentMethod::AliPayQr(_)
-                | WalletDataPaymentMethod::AliPayRedirect(_)
-                | WalletDataPaymentMethod::AliPayHkRedirect(_)
-                | WalletDataPaymentMethod::AmazonPayRedirect(_)
-                | WalletDataPaymentMethod::MomoRedirect(_)
-                | WalletDataPaymentMethod::KakaoPayRedirect(_)
-                | WalletDataPaymentMethod::GoPayRedirect(_)
-                | WalletDataPaymentMethod::GcashRedirect(_)
-                | WalletDataPaymentMethod::ApplePay(_)
-                | WalletDataPaymentMethod::AmazonPay(_)
-                | WalletDataPaymentMethod::ApplePayRedirect(_)
-                | WalletDataPaymentMethod::ApplePayThirdPartySdk(_)
-                | WalletDataPaymentMethod::DanaRedirect {}
-                | WalletDataPaymentMethod::GooglePay(_)
-                | WalletDataPaymentMethod::GooglePayRedirect(_)
-                | WalletDataPaymentMethod::GooglePayThirdPartySdk(_)
-                | WalletDataPaymentMethod::MbWayRedirect(_)
-                | WalletDataPaymentMethod::MobilePayRedirect(_)
-                | WalletDataPaymentMethod::PaypalRedirect(_)
-                | WalletDataPaymentMethod::PaypalSdk(_)
-                | WalletDataPaymentMethod::Paze(_)
-                | WalletDataPaymentMethod::SamsungPay(_)
-                | WalletDataPaymentMethod::TwintRedirect {}
-                | WalletDataPaymentMethod::VippsRedirect {}
-                | WalletDataPaymentMethod::BluecodeRedirect {}
-                | WalletDataPaymentMethod::TouchNGoRedirect(_)
-                | WalletDataPaymentMethod::WeChatPayRedirect(_)
-                | WalletDataPaymentMethod::WeChatPayQr(_)
-                | WalletDataPaymentMethod::CashappQr(_)
-                | WalletDataPaymentMethod::SwishQr(_)
-                | WalletDataPaymentMethod::RevolutPay(_)
-                | WalletDataPaymentMethod::Paysera(_)
-                | WalletDataPaymentMethod::Skrill(_)
-                | WalletDataPaymentMethod::Mifinity(_) => {
+                _ => {
                     Err(errors::ConnectorError::NotImplemented(
-                        utils::get_unimplemented_payment_method_error_message("amazonpay"),
+                        utils::get_unimplemented_payment_method_error_message("bkash wallet type"),
                     )
                         .into())
                 }
             },
-            _ => Err(errors::ConnectorError::NotImplemented("Payment method".to_string()).into()),
+            _ => Err(errors::ConnectorError::NotImplemented("Payment method not supported".to_string()).into()),
         }
     }
 
@@ -418,7 +414,7 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
     ) -> CustomResult<PaymentsAuthorizeRouterData, errors::ConnectorError> {
         let response: bkash::BkashPaymentsResponse = res
             .response
-            .parse_struct("Bkash PaymentsAuthorizeResponse")
+            .parse_struct("BkashPaymentResponse")
             .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
         event_builder.map(|i| i.set_response_body(&response));
         router_env::logger::info!(connector_response=?response);
@@ -437,7 +433,6 @@ impl ConnectorIntegration<Authorize, PaymentsAuthorizeData, PaymentsResponseData
         self.build_error_response(res, event_builder)
     }
 }
-
 impl ConnectorIntegration<PSync, PaymentsSyncData, PaymentsResponseData> for Bkash {
     fn get_headers(
         &self,
@@ -482,7 +477,7 @@ impl ConnectorIntegration<PSync, PaymentsSyncData, PaymentsResponseData> for Bka
     ) -> CustomResult<PaymentsSyncRouterData, errors::ConnectorError> {
         let response: bkash::BkashPaymentsResponse = res
             .response
-            .parse_struct("bkash PaymentsSyncResponse")
+            .parse_struct("BkashPaymentResponse")
             .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
         event_builder.map(|i| i.set_response_body(&response));
         router_env::logger::info!(connector_response=?response);
@@ -588,7 +583,7 @@ impl ConnectorIntegration<Execute, RefundsData, RefundsResponseData> for Bkash {
         connectors: &Connectors,
     ) -> CustomResult<Vec<(String, masking::Maskable<String>)>, errors::ConnectorError> {
         let mut headers = self.build_headers(req, connectors)?;
-        
+
         // Add Authorization header with access token
         if let Some(access_token) = &req.access_token {
             headers.push((
@@ -596,7 +591,7 @@ impl ConnectorIntegration<Execute, RefundsData, RefundsResponseData> for Bkash {
                 format!("Bearer {}", access_token.token.clone().expose()).into_masked(),
             ));
         }
-        
+
         // Add X-App-Key header
         let auth = bkash::BkashAuthType::try_from(&req.connector_auth_type)
             .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
@@ -604,8 +599,9 @@ impl ConnectorIntegration<Execute, RefundsData, RefundsResponseData> for Bkash {
             "X-App-Key".to_string(),
             auth.app_key.expose().into_masked(),
         ));
-        
+
         Ok(headers)
+
     }
 
     fn get_content_type(&self) -> &'static str {

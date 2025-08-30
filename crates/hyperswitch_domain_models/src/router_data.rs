@@ -114,6 +114,10 @@ pub struct RouterData<Flow, Request, Response> {
     pub is_payment_id_from_merchant: Option<bool>,
 }
 
+impl<Flow, Request, Response> RouterData<Flow, Request, Response> {
+
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct L2L3Data {
     pub order_date: Option<time::PrimitiveDateTime>,
