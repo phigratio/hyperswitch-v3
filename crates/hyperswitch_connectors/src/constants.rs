@@ -4,9 +4,9 @@ pub(crate) mod headers {
     pub(crate) const API_KEY: &str = "API-KEY";
     pub(crate) const APIKEY: &str = "apikey";
     pub(crate) const API_TOKEN: &str = "Api-Token";
-    pub(crate) const USERNAME: &str = "Username";
-    pub(crate) const PASSWORD: &str = "Password";
-    pub(crate) const AUTHORIZATION: &str = "Authorization";
+    pub(crate) const USERNAME: &str = "username";
+    pub(crate) const PASSWORD: &str = "password";
+    pub(crate) const AUTHORIZATION: &str = "authorization";
     pub(crate) const CONTENT_TYPE: &str = "Content-Type";
     pub(crate) const DATE: &str = "Date";
     pub(crate) const IDEMPOTENCY_KEY: &str = "Idempotency-Key";
@@ -27,7 +27,8 @@ pub(crate) mod headers {
     pub(crate) const X_REQUEST_DATE: &str = "X-RequestDate";
     pub(crate) const X_VERSION: &str = "X-Version";
     pub(crate) const X_API_KEY: &str = "X-Api-Key";
-    pub(crate) const CORRELATION_ID: &str = "Correlation-Id";
+    pub(crate) const X_APP_KEY: &str = "x-app-Key";
+     pub(crate) const CORRELATION_ID: &str = "Correlation-Id";
     pub(crate) const WP_API_VERSION: &str = "WP-Api-Version";
     pub(crate) const STRIPE_COMPATIBLE_CONNECT_ACCOUNT: &str = "Stripe-Account";
     pub(crate) const SOURCE: &str = "Source";
